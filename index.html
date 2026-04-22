@@ -1,52 +1,792 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Clario</title>
-  <style>
-    body {
-      font-family: Arial;
-      padding: 20px;
-      background: #f5f5f5;
+import { useState, useRef, useEffect, useCallback } from "react";
+
+// ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
+const C = {
+  navy:    "#0b1628",
+  navy2:   "#142040",
+  navy3:   "#1e3060",
+  gold:    "#f0b429",
+  goldL:   "#fdf3c0",
+  goldD:   "#b8860b",
+  white:   "#f8f7f2",
+  offWhite:"#eeede6",
+  muted:   "#8892a4",
+  border:  "#1e3060",
+  green:   "#22c55e",
+  greenL:  "#dcfce7",
+  orange:  "#fb923c",
+  orangeL: "#ffedd5",
+  red:     "#ef4444",
+  redL:    "#fee2e2",
+  card:    "#111e36",
+  cardHov: "#162540",
+};
+
+// ─── SAMPLE DATA ─────────────────────────────────────────────────────────────
+const SAMPLE_BILLS = {
+  energy: {
+    title: "Eneco Energierekening Q1 2025",
+    total: "€1.022,71",
+    icon: "⚡",
+    raw: `Eneco B.V. — Energierekening
+Periode: 01-01-2025 t/m 31-03-2025
+Klantnummer: 4829103-NL
+
+Elektriciteitsverbruik  850 kWh × €0,32    €272,00
+Terugleververgoeding   -120 kWh × €0,07    -€8,40
+Vastrecht elektriciteit                     €26,50
+Gasverbruik             310 m³ × €1,18     €365,80
+Vastrecht gas                               €23,75
+Netbeheerskosten                            €54,20
+Energiebelasting (EB)                       €89,40
+ODE heffing                                 €22,10
+BTW 21%                                    €177,36
+─────────────────────────────────────────────────
+TOTAAL TE BETALEN                        €1.022,71`,
+    items: [
+      { label: "Elektriciteitsverbruik", amount: "€272,00", status: "ok",
+        detail: "850 kWh × €0,32 is een normaal tarief voor 2025. Je verbruik ligt iets boven gemiddeld (NL-gemiddelde: ~750 kWh/kwartaal). Alles klopt hier." },
+      { label: "Terugleververgoeding zonnepanelen", amount: "-€8,40", status: "warning",
+        detail: "💡 Je krijgt maar €0,07/kWh terug voor zonnepanelen. Andere leveranciers betalen €0,09–€0,12. Je kunt hier €15–€30 per kwartaal besparen door over te stappen naar bijvoorbeeld Vattenfall of Greenchoice." },
+      { label: "Vastrecht (elektra + gas)", amount: "€50,25", status: "ok",
+        detail: "Vaste aansluitingskosten per kwartaal. €50,25 is een standaard bedrag. Hier hoef je niets te doen." },
+      { label: "Gasverbruik", amount: "€365,80", status: "ok",
+        detail: "310 m³ gas voor €1,18/m³. Dit is een gemiddeld kwartaalverbruik voor een Nederlandse tussenwoning. Het tarief klopt met de markt." },
+      { label: "Netbeheerskosten", amount: "€54,20", status: "ok",
+        detail: "Betaald aan Liander/Stedin voor onderhoud van het elektriciteitsnet. Dit is verplicht en gaat niet naar Eneco. Normaal bedrag." },
+      { label: "Energiebelasting & ODE", amount: "€111,50", status: "ok",
+        detail: "Overheidsbelasting op energieverbruik. Dit betaalt iedereen in Nederland. Je kunt dit niet vermijden, maar bij lager verbruik daalt dit bedrag evenredig." },
+      { label: "BTW 21%", amount: "€177,36", status: "flag",
+        detail: "⚠️ Let op! De BTW lijkt berekend over het volledige bedrag inclusief energiebelasting. Controleer je contract: bij sommige leveranciers wordt BTW onjuist berekend. Dit kan betekenen dat je te veel betaalt. Overweeg een klacht in te dienen via de ACM (Autoriteit Consument & Markt)." },
+      { label: "TOTAAL", amount: "€1.022,71", status: "ok",
+        detail: "Het totaal lijkt wiskundig te kloppen. Belangrijkste aandachtspunten: (1) de lage teruglevertarief kost je geld, (2) controleer de BTW-berekening. Potentiële besparing: €30–€100 per kwartaal." },
+    ]
+  },
+  zorg: {
+    title: "CZ Zorgrekening Maart 2025",
+    total: "€342,15",
+    icon: "🏥",
+    raw: `CZ Zorgverzekeringen N.V.
+Declaratieoverzicht — Maart 2025
+Polisnummer: CZ-8821-44390
+
+Huisartsbezoek (2×)                         €0,00
+Fysiotherapie 1e t/m 9e behandeling         €0,00
+Fysiotherapie 10e behandeling              €34,20
+Fysiotherapie 11e behandeling              €34,20
+Specialist consultatie (internist)         €98,50
+MRI-scan lage rug                         €175,25
+Eigen risico verrekening                  -€385,00
+Aanvullend: brillenglazen                  €85,00
+Terugbetaling brillen (max €100)          -€85,00
+─────────────────────────────────────────────────
+TE BETALEN / TERUG TE ONTVANGEN           €342,15`,
+    items: [
+      { label: "Huisartsbezoek", amount: "€0,00", status: "ok",
+        detail: "Huisartsbezoeken zijn volledig gedekt door je basisverzekering. Je betaalt hier nooit voor. Klopt." },
+      { label: "Fysiotherapie (1e–9e behandeling)", amount: "€0,00", status: "ok",
+        detail: "De eerste 9 fysiotherapiebehandelingen per jaar worden niet vergoed vanuit de basisverzekering. Dit valt onder je eigen risico. Klopt als je aanvullende verzekering dit niet dekt." },
+      { label: "Fysiotherapie (10e & 11e behandeling)", amount: "€68,40", status: "warning",
+        detail: "💡 Vanaf de 10e behandeling wordt fysiotherapie vergoed. Maar dit gaat WEL van je eigen risico af als dat nog niet op is. Controleer of je eigen risico al verbruikt was in maart." },
+      { label: "Specialist & MRI-scan", amount: "€273,75", status: "ok",
+        detail: "Specialistisch consult en MRI worden vergoed vanuit je basisverzekering. Deze worden verrekend met je eigen risico van €385. Klopt." },
+      { label: "Eigen risico verrekening", amount: "-€385,00", status: "flag",
+        detail: "⚠️ Let op: je eigen risico van €385 is al volledig verrekend dit jaar. Dit betekent dat alle verdere zorgkosten in 2025 volledig vergoed worden. Bewaar dit overzicht goed — als CZ later nog eigen risico in rekening brengt, is dat fout en kun je bezwaar maken." },
+      { label: "Brillenglazen (aanvullend)", amount: "€0,00 (netto)", status: "ok",
+        detail: "Je aanvullende verzekering vergoedt tot €100 voor brillenglazen. Je hebt €85 gedeclareerd en €85 teruggekregen. Volledig correct." },
+    ]
+  },
+  huur: {
+    title: "Huurafrekening Vestigia Wonen 2024",
+    total: "€289,40 bij te betalen",
+    icon: "🏠",
+    raw: `Vestigia Wonen — Jaarafrekening Servicekosten 2024
+Adres: Rijnstraat 44, 3011 Rotterdam
+Huurdersnummer: VW-20441
+
+Stookkosten (verwarming)                  €845,00
+Waterverbruik (gemeenschappelijk)          €62,40
+Lift-onderhoud (jaarlijks)                 €89,00
+Tuinonderhoud                             €120,00
+Schoonmaak gemeenschappelijke ruimtes     €180,00
+Beheerkosten (5% van servicekosten)        €64,82
+Administratiekosten                        €45,00
+Reeds betaalde voorschotten             -€1.116,82
+─────────────────────────────────────────────────
+TOTAAL NAHEFFING                          €289,40`,
+    items: [
+      { label: "Stookkosten verwarming", amount: "€845,00", status: "flag",
+        detail: "⚠️ Dit is het hoogste bedrag op je rekening. Vraag de verhuurder om een gedetailleerde onderbouwing: hoeveel kubieke meter gas is verbruikt, tegen welk tarief, en hoe de kosten verdeeld zijn over de appartementen. Dit is je wettelijk recht (BW artikel 7:259). Zonder onderbouwing hoef je dit niet te betalen." },
+      { label: "Waterverbruik (gemeenschappelijk)", amount: "€62,40", status: "ok",
+        detail: "Kosten voor water in gemeenschappelijke ruimtes (schoonmaken, tuin etc.). €62,40 per jaar is redelijk voor een appartementencomplex. Klopt." },
+      { label: "Lift-onderhoud", amount: "€89,00", status: "ok",
+        detail: "Jaarlijks liftonderhoud is een legitieme servicekosten-post. €89 per appartement per jaar is een normaal bedrag. Klopt." },
+      { label: "Tuin & schoonmaak", amount: "€300,00", status: "warning",
+        detail: "💡 €300/jaar voor tuin en schoonmaak is aan de hoge kant. Vraag het contract of de offerte van de schoonmaak- en tuinfirma op. Je hebt als huurder recht op inzage in de onderliggende facturen." },
+      { label: "Beheerkosten 5%", amount: "€64,82", status: "flag",
+        detail: "⚠️ Beheerkosten zijn alleen toegestaan als dit expliciet in je huurcontract staat. Check je contract! Als dit er niet in staat, hoef je dit niet te betalen. De Huurcommissie ondersteunt je hier gratis bij." },
+      { label: "Administratiekosten", amount: "€45,00", status: "flag",
+        detail: "⚠️ Aparte administratiekosten zijn in Nederland wettelijk niet toegestaan als servicekosten (tenzij contractueel vastgelegd). Dit is mogelijk een onterechte post. Meld dit bij de Huurcommissie." },
+    ]
+  }
+};
+
+const QUICK_QUESTIONS = [
+  "Kan ik bezwaar maken?",
+  "Hoe kan ik besparen?",
+  "Is dit verbruik normaal?",
+  "Wat zijn mijn rechten?",
+];
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const statusMeta = (s) => ({
+  ok:      { color: C.green,  bg: C.greenL,  icon: "✓",  label: "Correct" },
+  warning: { color: C.orange, bg: C.orangeL, icon: "💡", label: "Let op" },
+  flag:    { color: C.red,    bg: C.redL,    icon: "⚠️", label: "Controleer" },
+}[s] || { color: C.muted, bg: "#eee", icon: "•", label: "" });
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+function Pill({ status }) {
+  const m = statusMeta(status);
+  return (
+    <span style={{
+      background: m.bg, color: m.color,
+      fontSize: 11, fontWeight: 700,
+      padding: "2px 9px", borderRadius: 100,
+      letterSpacing: 0.5,
+    }}>{m.label}</span>
+  );
+}
+
+function ScanLine() {
+  return (
+    <div style={{ position: "relative", width: "100%", height: 4, overflow: "visible", margin: "8px 0" }}>
+      <style>{`
+        @keyframes scan { 0%{left:0%} 100%{left:95%} }
+        .scanbar { position:absolute; top:-1px; width:5%; height:6px; background:${C.gold};
+          border-radius:3px; box-shadow:0 0 16px ${C.gold}; animation:scan 1.4s ease-in-out infinite alternate; }
+      `}</style>
+      <div style={{ width: "100%", height: "100%", background: C.border, borderRadius: 2 }} />
+      <div className="scanbar" />
+    </div>
+  );
+}
+
+function StatusBar({ flags, warnings }) {
+  return (
+    <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      {flags > 0 && (
+        <div style={{ background: C.redL, border: `1px solid ${C.red}44`, borderRadius: 10,
+          padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <span>⚠️</span>
+          <span style={{ color: C.red, fontWeight: 600 }}>{flags} aandachtspunt{flags > 1 ? "en" : ""}</span>
+        </div>
+      )}
+      {warnings > 0 && (
+        <div style={{ background: C.orangeL, border: `1px solid ${C.orange}44`, borderRadius: 10,
+          padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <span>💡</span>
+          <span style={{ color: C.orange, fontWeight: 600 }}>{warnings} bespaartip{warnings > 1 ? "s" : ""}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SCREENS ─────────────────────────────────────────────────────────────────
+
+function HomeScreen({ onScan, onDemo }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "24px 20px 32px" }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .fu1{animation:fadeUp .5s ease both .1s}
+        .fu2{animation:fadeUp .5s ease both .25s}
+        .fu3{animation:fadeUp .5s ease both .4s}
+        .fu4{animation:fadeUp .5s ease both .55s}
+        .btn-gold:hover{transform:translateY(-2px);box-shadow:0 8px 24px ${C.gold}44!important}
+        .btn-outline:hover{background:${C.card}!important}
+        .demo-card:hover{background:${C.cardHov}!important;transform:translateY(-2px)}
+      `}</style>
+
+      {/* Hero */}
+      <div className="fu1" style={{ textAlign: "center", margin: "8px 0 28px" }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 20,
+          background: `linear-gradient(135deg, ${C.navy3}, ${C.navy2})`,
+          border: `2px solid ${C.gold}44`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 32, margin: "0 auto 16px",
+          boxShadow: `0 8px 32px ${C.gold}22`,
+        }}>📄</div>
+        <h1 style={{
+          fontFamily: "'Playfair Display', Georgia, serif",
+          fontSize: 28, color: C.white, marginBottom: 10, lineHeight: 1.2,
+        }}>Begrijp elke<br /><em style={{ color: C.gold }}>rekening</em></h1>
+        <p style={{ color: C.muted, fontSize: 14, lineHeight: 1.6, maxWidth: 280, margin: "0 auto" }}>
+          Scan, analyseer en begrijp elk document in gewone taal. Wij sporen fouten en besparingen op.
+        </p>
+      </div>
+
+      {/* Scan button */}
+      <div className="fu2">
+        <button className="btn-gold" onClick={onScan} style={{
+          width: "100%", background: C.gold, color: C.navy,
+          border: "none", borderRadius: 16, padding: "18px 24px",
+          fontSize: 16, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+          transition: "all .2s", boxShadow: `0 4px 16px ${C.gold}33`,
+          fontFamily: "inherit",
+        }}>
+          <span style={{ fontSize: 20 }}>📷</span>
+          <span>Scan een rekening</span>
+        </button>
+      </div>
+
+      {/* Divider */}
+      <div className="fu3" style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }}>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+        <span style={{ color: C.muted, fontSize: 12 }}>of probeer een voorbeeld</span>
+        <div style={{ flex: 1, height: 1, background: C.border }} />
+      </div>
+
+      {/* Demo cards */}
+      <div className="fu4" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {Object.entries(SAMPLE_BILLS).map(([key, bill]) => (
+          <button key={key} className="demo-card" onClick={() => onDemo(key)} style={{
+            background: C.card, border: `1px solid ${C.border}`,
+            borderRadius: 14, padding: "14px 16px",
+            display: "flex", alignItems: "center", gap: 14,
+            cursor: "pointer", transition: "all .2s", textAlign: "left",
+            width: "100%", fontFamily: "inherit",
+          }}>
+            <span style={{
+              width: 44, height: 44, borderRadius: 12,
+              background: C.navy3, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 22, flexShrink: 0,
+            }}>{bill.icon}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: C.white, fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{bill.title}</div>
+              <div style={{ color: C.muted, fontSize: 12 }}>Totaal: {bill.total}</div>
+            </div>
+            <span style={{ color: C.gold, fontSize: 18 }}>→</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Features */}
+      <div style={{ marginTop: 28, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[["🔍", "Foutdetectie"], ["💡", "Bespaartips"], ["⚖️", "Jouw rechten"], ["💬", "AI-assistent"]].map(([icon, label]) => (
+          <div key={label} style={{
+            background: C.card, border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: "12px 14px",
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span style={{ fontSize: 18 }}>{icon}</span>
+            <span style={{ color: C.muted, fontSize: 12, fontWeight: 500 }}>{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScanScreen({ onDone }) {
+  const [phase, setPhase] = useState(0);
+  const phases = [
+    "Document herkennen...",
+    "Tekst extraheren...",
+    "Bedragen analyseren...",
+    "Fouten opsporen...",
+    "Rapport genereren...",
+  ];
+
+  useEffect(() => {
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      if (i < phases.length) setPhase(i);
+      else { clearInterval(iv); setTimeout(onDone, 400); }
+    }, 520);
+    return () => clearInterval(iv);
+  }, []);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", padding: 32, gap: 28 }}>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+      `}</style>
+
+      {/* Animated document */}
+      <div style={{ position: "relative", width: 120, height: 150 }}>
+        <div style={{
+          width: "100%", height: "100%",
+          background: C.card, border: `2px solid ${C.border}`,
+          borderRadius: 16, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 8, overflow: "hidden",
+        }}>
+          {[1,2,3,4].map(i => (
+            <div key={i} style={{
+              width: `${60 + i * 8}%`, height: 6,
+              background: C.border, borderRadius: 3,
+              animation: `pulse 1.5s ease ${i * .2}s infinite`,
+            }} />
+          ))}
+        </div>
+        <div style={{
+          position: "absolute", inset: -8,
+          border: `2px solid ${C.gold}`,
+          borderRadius: 24, borderTopColor: "transparent",
+          animation: "spin 1s linear infinite",
+        }} />
+        <div style={{
+          position: "absolute", bottom: -8, right: -8,
+          width: 32, height: 32, borderRadius: "50%",
+          background: C.gold, display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: 16,
+          boxShadow: `0 4px 12px ${C.gold}66`,
+        }}>🔍</div>
+      </div>
+
+      {/* Progress */}
+      <div style={{ width: "100%", maxWidth: 280, textAlign: "center" }}>
+        <div style={{ color: C.white, fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+          {phases[phase]}
+        </div>
+        <div style={{ width: "100%", height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+          <div style={{
+            height: "100%", borderRadius: 3,
+            background: `linear-gradient(90deg, ${C.gold}, ${C.goldD})`,
+            width: `${((phase + 1) / phases.length) * 100}%`,
+            transition: "width .5s ease",
+          }} />
+        </div>
+        <div style={{ color: C.muted, fontSize: 12, marginTop: 10 }}>
+          {Math.round(((phase + 1) / phases.length) * 100)}% voltooid
+        </div>
+      </div>
+
+      <ScanLine />
+    </div>
+  );
+}
+
+function ResultScreen({ billKey, onChat, onBack, onNewScan }) {
+  const bill = SAMPLE_BILLS[billKey];
+  const [openItem, setOpenItem] = useState(null);
+  const flags = bill.items.filter(i => i.status === "flag").length;
+  const warnings = bill.items.filter(i => i.status === "warning").length;
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 100px" }}>
+      <style>{`
+        @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        .item-row{transition:all .15s}
+        .item-row:hover{background:${C.cardHov}!important}
+      `}</style>
+
+      {/* Bill header */}
+      <div style={{
+        background: `linear-gradient(135deg, ${C.navy2}, ${C.navy3})`,
+        border: `1px solid ${C.border}`,
+        borderRadius: 18, padding: "20px",
+        marginBottom: 16,
+        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+      }}>
+        <div>
+          <div style={{ fontSize: 22, marginBottom: 6 }}>{bill.icon}</div>
+          <div style={{ color: C.white, fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{bill.title}</div>
+          <div style={{ color: C.muted, fontSize: 12 }}>Analyse voltooid</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: C.gold, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, fontWeight: 700 }}>
+            {bill.total}
+          </div>
+          <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>TOTAAL</div>
+        </div>
+      </div>
+
+      <StatusBar flags={flags} warnings={warnings} />
+
+      {/* Items */}
+      <div style={{ marginBottom: 20 }}>
+        {bill.items.map((item, i) => {
+          const m = statusMeta(item.status);
+          const open = openItem === i;
+          return (
+            <div key={i} className="item-row"
+              onClick={() => setOpenItem(open ? null : i)}
+              style={{
+                background: open ? C.card : "transparent",
+                border: `1px solid ${open ? m.color + "44" : C.border}`,
+                borderRadius: 12, padding: "13px 14px",
+                marginBottom: 7, cursor: "pointer",
+                animation: `slideIn .3s ease ${i * .05}s both`,
+              }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    width: 28, height: 28, borderRadius: "50%",
+                    background: m.bg, display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 13, flexShrink: 0,
+                  }}>{m.icon}</span>
+                  <span style={{ color: C.white, fontSize: 14, fontWeight: open ? 600 : 400 }}>{item.label}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: m.color, fontSize: 14, fontWeight: 600 }}>{item.amount}</span>
+                  <span style={{ color: C.muted, fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              {open && (
+                <div style={{
+                  marginTop: 12, paddingTop: 12,
+                  borderTop: `1px solid ${C.border}`,
+                  color: C.offWhite, fontSize: 13, lineHeight: 1.75,
+                  animation: "slideIn .2s ease both",
+                }}>
+                  {item.detail}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Original bill */}
+      <div style={{
+        background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 14, padding: 16, marginBottom: 8,
+      }}>
+        <div style={{ color: C.muted, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
+          Origineel document
+        </div>
+        <pre style={{
+          color: C.muted, fontSize: 11, margin: 0,
+          whiteSpace: "pre-wrap", fontFamily: "'Courier New', monospace",
+          lineHeight: 1.8,
+        }}>{bill.raw}</pre>
+      </div>
+
+      {/* Bottom bar */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 430,
+        background: C.navy, borderTop: `1px solid ${C.border}`,
+        padding: "12px 20px", display: "flex", gap: 10,
+      }}>
+        <button onClick={onChat} style={{
+          flex: 1, background: C.card, color: C.white,
+          border: `1px solid ${C.border}`, borderRadius: 12, padding: 13,
+          fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}>💬 Stel een vraag</button>
+        <button onClick={onNewScan} style={{
+          flex: 1, background: C.gold, color: C.navy,
+          border: "none", borderRadius: 12, padding: 13,
+          fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}>📷 Nieuwe scan</button>
+      </div>
+    </div>
+  );
+}
+
+function ChatScreen({ billKey, onBack }) {
+  const bill = SAMPLE_BILLS[billKey];
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const endRef = useRef(null);
+
+  const send = async (text) => {
+    const msg = text || input.trim();
+    if (!msg) return;
+    setInput("");
+    const updated = [...messages, { role: "user", content: msg }];
+    setMessages(updated);
+    setLoading(true);
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: `Je bent Clario, een vriendelijke Nederlandse AI-assistent die mensen helpt hun rekeningen te begrijpen.
+
+De gebruiker heeft de volgende rekening geanalyseerd:
+Naam: ${bill.title}
+Totaal: ${bill.total}
+
+Rekening inhoud:
+${bill.raw}
+
+Aandachtspunten gevonden:
+${bill.items.filter(i => i.status === "flag").map(i => `- ${i.label}: ${i.detail}`).join("\n")}
+
+Bespaartips:
+${bill.items.filter(i => i.status === "warning").map(i => `- ${i.label}: ${i.detail}`).join("\n")}
+
+Regels:
+- Antwoord in eenvoudig Nederlands
+- Wees concreet en praktisch
+- Geef stap-voor-stap advies als iemand bezwaar wil maken
+- Maximaal 3 korte alinea's per antwoord
+- Verwijs naar relevante organisaties (ACM, Huurcommissie, etc.) indien van toepassing`,
+          messages: updated.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await res.json();
+      const reply = data.content?.map(b => b.text || "").join("") || "Sorry, probeer opnieuw.";
+      setMessages([...updated, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages([...updated, { role: "assistant", content: "Er is een fout opgetreden. Controleer je internetverbinding en probeer opnieuw." }]);
     }
-    .screen {
-      background: white;
-      padding: 15px;
-      margin-bottom: 10px;
-      border-radius: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-  </style>
-</head>
-<body>
+    setLoading(false);
+  };
 
-  <h1>Clario App 🚀</h1>
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
-  <div id="root"></div>
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      {/* Chat messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 80px" }}>
+        {messages.length === 0 && (
+          <div>
+            <div style={{
+              background: C.card, border: `1px solid ${C.border}`,
+              borderRadius: 16, padding: "16px", marginBottom: 20,
+              display: "flex", gap: 12, alignItems: "flex-start",
+            }}>
+              <span style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: C.navy3, display: "flex", alignItems: "center",
+                justifyContent: "center", fontSize: 18, flexShrink: 0,
+              }}>📄</span>
+              <div>
+                <div style={{ color: C.gold, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Clario AI</div>
+                <div style={{ color: C.offWhite, fontSize: 13, lineHeight: 1.6 }}>
+                  Ik heb je rekening geanalyseerd. Stel me gerust vragen — over bezwaar maken, besparen, of wat een post precies betekent.
+                </div>
+              </div>
+            </div>
 
-  <script>
-    function HomeScreen() {
-      return "<div class='screen'>🏠 Home Screen</div>";
-    }
+            <div style={{ color: C.muted, fontSize: 12, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
+              Veelgestelde vragen
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {QUICK_QUESTIONS.map((q, i) => (
+                <button key={i} onClick={() => send(q)} style={{
+                  background: C.card, border: `1px solid ${C.border}`,
+                  borderRadius: 12, padding: "12px 14px",
+                  color: C.white, fontSize: 13, cursor: "pointer",
+                  textAlign: "left", fontFamily: "inherit", transition: "all .15s",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <span>{q}</span>
+                  <span style={{ color: C.gold }}>→</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-    function ScanScreen() {
-      return "<div class='screen'>📷 Scan Screen</div>";
-    }
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            display: "flex",
+            justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+            marginBottom: 14,
+            gap: 10,
+            alignItems: "flex-end",
+          }}>
+            {m.role === "assistant" && (
+              <span style={{
+                width: 30, height: 30, borderRadius: 8,
+                background: C.navy3, display: "flex", alignItems: "center",
+                justifyContent: "center", fontSize: 14, flexShrink: 0,
+              }}>📄</span>
+            )}
+            <div style={{
+              maxWidth: "78%",
+              background: m.role === "user" ? C.gold : C.card,
+              color: m.role === "user" ? C.navy : C.offWhite,
+              borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+              padding: "12px 15px",
+              fontSize: 14, lineHeight: 1.65,
+              border: m.role === "assistant" ? `1px solid ${C.border}` : "none",
+              fontWeight: m.role === "user" ? 600 : 400,
+            }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
 
-    function ResultScreen() {
-      return "<div class='screen'>📊 Result Screen</div>";
-    }
+        {loading && (
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 14 }}>
+            <span style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: C.navy3, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 14,
+            }}>📄</span>
+            <div style={{
+              background: C.card, border: `1px solid ${C.border}`,
+              borderRadius: "18px 18px 18px 4px", padding: "14px 18px",
+            }}>
+              <style>{`@keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}`}</style>
+              {[0,1,2].map(i => (
+                <span key={i} style={{
+                  display: "inline-block", width: 6, height: 6,
+                  borderRadius: "50%", background: C.gold,
+                  margin: "0 2px",
+                  animation: `blink 1.4s ${i * .2}s infinite`,
+                }} />
+              ))}
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
 
-    function ChatScreen() {
-      return "<div class='screen'>💬 Chat Screen</div>";
-    }
+      {/* Input */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 430,
+        background: C.navy, borderTop: `1px solid ${C.border}`,
+        padding: "12px 20px",
+        display: "flex", gap: 10,
+      }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
+          placeholder="Stel een vraag over je rekening..."
+          style={{
+            flex: 1, background: C.card,
+            border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: "12px 16px",
+            color: C.white, fontSize: 14, outline: "none",
+            fontFamily: "inherit",
+          }}
+        />
+        <button onClick={() => send()} disabled={!input.trim() || loading} style={{
+          background: input.trim() && !loading ? C.gold : C.border,
+          color: input.trim() && !loading ? C.navy : C.muted,
+          border: "none", borderRadius: 12, padding: "12px 16px",
+          fontSize: 18, cursor: input.trim() && !loading ? "pointer" : "default",
+          transition: "all .15s", fontFamily: "inherit",
+        }}>→</button>
+      </div>
+    </div>
+  );
+}
 
-    document.getElementById("root").innerHTML =
-      HomeScreen() +
-      ScanScreen() +
-      ResultScreen() +
-      ChatScreen();
-  </script>
+// ─── APP ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [screen, setScreen] = useState("home");
+  const [billKey, setBillKey] = useState(null);
 
-</body>
-</html>
+  const handleDemo = (key) => {
+    setBillKey(key);
+    setScreen("scanning");
+  };
+
+  const handleScan = () => {
+    setBillKey("energy");
+    setScreen("scanning");
+  };
+
+  const titles = {
+    home: "Clario",
+    scanning: "Analyseren",
+    result: "Analyse",
+    chat: "Assistent",
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: C.navy,
+      fontFamily: "'DM Sans', system-ui, sans-serif",
+      color: C.white, display: "flex", justifyContent: "center",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;1,600&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 2px; }
+        button { cursor: pointer; }
+        input::placeholder { color: ${C.muted}; }
+      `}</style>
+
+      <div style={{
+        width: "100%", maxWidth: 430,
+        minHeight: "100vh", background: C.navy,
+        display: "flex", flexDirection: "column",
+        position: "relative",
+      }}>
+
+        {/* Top bar */}
+        <div style={{
+          padding: "16px 20px",
+          borderBottom: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", gap: 12,
+          background: C.navy,
+          position: "sticky", top: 0, zIndex: 10,
+        }}>
+          {screen !== "home" && (
+            <button
+              onClick={() => setScreen(screen === "chat" ? "result" : screen === "result" ? "home" : "home")}
+              style={{ background: "none", border: "none", color: C.muted, fontSize: 22, padding: "0 4px 0 0", lineHeight: 1 }}>
+              ←
+            </button>
+          )}
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontFamily: "'Playfair Display', Georgia, serif",
+              fontSize: screen === "home" ? 22 : 18,
+              color: screen === "home" ? C.gold : C.white,
+              fontWeight: 700,
+            }}>
+              {screen === "home" ? "Clario" : titles[screen]}
+            </div>
+            {screen === "home" && (
+              <div style={{ fontSize: 11, color: C.muted, letterSpacing: 1.5, textTransform: "uppercase" }}>
+                Clarity for every bill
+              </div>
+            )}
+          </div>
+          {screen === "home" && (
+            <div style={{
+              background: C.card, border: `1px solid ${C.border}`,
+              borderRadius: 8, padding: "4px 10px",
+              fontSize: 11, color: C.gold, fontWeight: 600, letterSpacing: 1,
+            }}>BETA</div>
+          )}
+        </div>
+
+        {/* Screen */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: screen === "result" || screen === "chat" ? "hidden" : "auto" }}>
+          {screen === "home" && <HomeScreen onScan={handleScan} onDemo={handleDemo} />}
+          {screen === "scanning" && <ScanScreen onDone={() => setScreen("result")} />}
+          {screen === "result" && billKey && (
+            <ResultScreen
+              billKey={billKey}
+              onChat={() => setScreen("chat")}
+              onBack={() => setScreen("home")}
+              onNewScan={() => setScreen("home")}
+            />
+          )}
+          {screen === "chat" && billKey && (
+            <ChatScreen billKey={billKey} onBack={() => setScreen("result")} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
